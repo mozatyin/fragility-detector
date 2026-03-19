@@ -1,0 +1,51 @@
+{
+  "classes": [
+    "defensive",
+    "denial",
+    "masked",
+    "open"
+  ],
+  "signals": [
+    "distress",
+    "vulnerability_display",
+    "humor_as_shield",
+    "denial_strength",
+    "deflection_strength"
+  ],
+  "weights": {
+    "defensive": [
+      -0.591,
+      -0.6531,
+      -0.722,
+      -0.6324,
+      1.4592
+    ],
+    "denial": [
+      -0.5896,
+      -0.6091,
+      -0.4509,
+      1.8363,
+      -0.4703
+    ],
+    "masked": [
+      0.4062,
+      -0.2129,
+      1.9264,
+      -0.571,
+      -0.2273
+    ],
+    "open": [
+      0.7744,
+      1.4751,
+      -0.7536,
+      -0.6329,
+      -0.7617
+    ]
+  },
+  "intercepts": {
+    "defensive": 0.4911,
+    "denial": 0.2886,
+    "masked": -0.375,
+    "open": -0.4047
+  }
+}

@@ -1,0 +1,59 @@
+# Don Draper - Fragility Pattern: DENIAL (rejects vulnerability)
+# Source: Mad Men (2007-2015)
+# Pattern: Constructs impenetrable facade, denies emotions, rewrites painful past, treats feelings as weakness
+# Each line is dialogue spoken by Don Draper
+
+# === DENIAL OF PAST / ERASING PAIN ===
+Get out of here and move forward. This never happened. It will shock you how much it never happened.
+I have a life and it only goes in one direction. Forward.
+People tell you who they are, but we ignore it because we want them to be who we want them to be.
+I found out it was easier to be him than to start over.
+I was surprised that you ever loved me.
+
+# === CYNICISM ABOUT EMOTION (love is fake, feelings are tools) ===
+What you call love was invented by guys like me to sell nylons.
+You are the product. You feeling something. That's what sells.
+What is happiness? It's a moment before you need more happiness.
+You want some respect? Go out and get it for yourself.
+One great idea can win someone over.
+Success comes from standing out, not fitting in.
+
+# === THE UNIVERSE IS INDIFFERENT (nihilism as armor) ===
+I hate to break it to you, but there is no big lie. There is no system. The universe is indifferent.
+It's your life. You don't know how long it's gonna last, but you know it doesn't end well. You've gotta move forward, as soon as you can figure out what that means.
+The day you sign a client is the day you start losing them.
+Change is neither good nor bad. It simply is.
+Make it simple, but significant.
+
+# === DISMISSING OTHERS / EMOTIONAL WALLS ===
+I don't think about you at all.
+That's what the money is for!
+I'm glad this is an environment where you feel free to fail.
+Did you enjoy ze Fuhrer's birthday?
+You can't tell people what they want. It has to be what you want.
+If you don't like what's being said, change the conversation.
+You want to be taken seriously? Stop dressing like you're trying.
+
+# === CAROUSEL SPEECH (rare vulnerability breaking through) ===
+Nostalgia. It's delicate, but potent. Teddy told me that in Greek, nostalgia literally means the pain from an old wound. It's a twinge in your heart far more powerful than memory alone.
+This device isn't a spaceship. It's a time machine. It goes backwards, and forwards. It takes us to a place where we ache to go again.
+It's not called the wheel. It's called the carousel. It lets us travel the way a child travels. Around and around, and back home again, to a place where we know we are loved.
+
+# === HERSHEY CONFESSION (facade finally shatters) ===
+I'm sorry. I have to say this, because I don't know if I'll ever see you again.
+I was an orphan. I grew up in Pennsylvania, in a whorehouse.
+I read about Milton Hershey and his school in Coronet magazine, or some other crap the girls left by the toilet, and I read that some orphans had a different life there. I could picture it. I dreamed of it. Being wanted.
+The woman who was forced to raise me would look at me every day like she wished I would disappear.
+The closest I got to being wanted was with a girl who made me go through her johns' pockets while they screwed. If I collected more than a dollar, she'd buy me a Hershey bar. And I would eat it alone in my room with great ceremony.
+
+# === IDENTITY CRISIS (Dick Whitman beneath Don Draper) ===
+My name is Dick Whitman.
+I have been watching my life. It's right there. I keep scratching at it, trying to get into it. I can't.
+Believe me, when I tell you, I've had a lot of jobs. But I never had a calling. Until now.
+The reason you haven't felt it is because it doesn't exist. What you call love was invented by guys like me, to sell nylons.
+
+# === CONTROL AS COPING ===
+Even though success is a reality, its effects are temporary.
+Just think about it deeply, then forget it. And an idea will jump up in your face.
+Advertising is based on one thing: happiness. And you know what happiness is? Happiness is the smell of a new car. It's freedom from fear. It's a billboard on the side of the road that screams reassurance that whatever you are doing is okay. You are okay.
+We're flawed because we want so much more. We're ruined because we get these things and wish for what we had.
