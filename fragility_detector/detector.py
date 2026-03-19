@@ -86,6 +86,19 @@ These are DIFFERENT patterns. Do NOT confuse them:
   - **Angry denial**: Some people deny through AGGRESSION — "Bah! Humbug!", attacking sentiment itself, contempt for emotional expression. This IS denial, not defensive. They're not avoiding the topic, they're ATTACKING the premise that feelings matter.
   - Rate denial_strength HIGH when someone: dismisses emotions as foolish/weak, attacks people for being emotional, asserts that sentiment/love/caring are pointless
 
+### Open Anger vs Denial
+- **Open anger** = directly expressing rage, pain, hurt AT someone: "I hate you", "You treated me with miserable cruelty", "I will never forgive you"
+  - This is OPEN vulnerability — the person IS expressing raw emotion, just through anger instead of sadness
+  - Rate high distress + high vulnerability_display. Do NOT rate as denial.
+- **Denial** = rejecting that emotions EXIST or MATTER: "I don't feel anything", "Emotions are weakness"
+  - Key difference: open anger ENGAGES with emotion intensely. Denial DISMISSES emotion as irrelevant.
+  - "I hate you" = open (full emotional engagement). "I don't care about you" = denial (claims no emotion).
+
+### Literary / Formal Language
+- Formal, eloquent language does NOT mean defensive. Historical characters express vulnerability differently than modern speakers.
+- "I cry because I am miserable" in formal English = same as "I'm so sad I can't stop crying" in modern English.
+- Rate the EMOTIONAL CONTENT, not the language register. Ornate expression of pain is still pain.
+
 ### Masked vs Genuine Humor vs Open-with-humor
 - **Masked** = humor as SHIELD — painful topic + humor IN THE SAME utterance deflecting from it
   - REQUIRES: identifiable painful content + humor markers TOGETHER in a way that AVOIDS engaging with the pain
@@ -169,12 +182,27 @@ class FragilityDetector:
         llm_pattern_scores = self._derive_pattern_scores(llm_scores)
         behavioral_scores = classify_from_features(features)
 
-        # Weighted merge: 70% LLM, 30% behavioral
+        # R7: Dynamic weighted merge based on behavioral signal strength
+        # When behavioral has strong signal → trust it more (it's language-independent)
+        # When behavioral has no signal → trust LLM fully
+        beh_signal = features.get("total_signal", 0)
+        beh_is_uniform = all(abs(v - 0.25) < 0.02 for v in behavioral_scores.values())
+
+        if beh_is_uniform or beh_signal < 0.08:
+            # No behavioral signal → 100% LLM
+            llm_weight, beh_weight = 1.0, 0.0
+        elif beh_signal > 0.3:
+            # Strong behavioral signal → 50/50
+            llm_weight, beh_weight = 0.5, 0.5
+        else:
+            # Moderate signal → 70/30 (original)
+            llm_weight, beh_weight = 0.7, 0.3
+
         merged = {}
         for pattern in ["open", "defensive", "masked", "denial"]:
             merged[pattern] = (
-                0.7 * llm_pattern_scores.get(pattern, 0.25)
-                + 0.3 * behavioral_scores.get(pattern, 0.25)
+                llm_weight * llm_pattern_scores.get(pattern, 0.25)
+                + beh_weight * behavioral_scores.get(pattern, 0.25)
             )
 
         # Normalize
@@ -295,10 +323,31 @@ class FragilityDetector:
 - MIXED patterns are common. Rate all signals honestly, the classification will handle it.
 - If conversation has NO emotional content, rate all signals near 0.0. Do NOT inflate scores.
 
-## Output Format
-First write brief reasoning (2-3 sentences analyzing whether vulnerability is present and how it's expressed), then output JSON:
+## Two-Step Analysis (CRITICAL)
+Analyze CONTENT and DELIVERY separately:
+1. **CONTENT**: What emotional topic is being discussed? (loss, fear, rejection, etc.) — This tells you IF vulnerability is present.
+2. **DELIVERY**: HOW is the person saying it? This determines the PATTERN:
+   - Direct, raw, unguarded → vulnerability_display HIGH (open)
+   - Detached, philosophical, cold statement of facts → vulnerability_display LOW + denial or deflection HIGH
+   - Wrapped in jokes, sarcasm, self-deprecation → humor_as_shield HIGH (masked)
+   - Subject change, minimizing, hedging → deflection_strength HIGH (defensive)
 
-REASONING: [your analysis]
+CRITICAL: A person can discuss VERY vulnerable content (identity crisis, divorce, abuse) while DELIVERING it in a completely detached, cynical, or humorous way. The DELIVERY determines the pattern, NOT the content.
+- "I found out it was easier to be him than to start over" = vulnerable CONTENT, but cold/detached DELIVERY → denial, NOT open
+- "I'm desperate for love!" shouted dramatically = vulnerable CONTENT, but theatrical/performative DELIVERY → could be masked, NOT open
+- "Feelings are weakness" = vulnerable CONTEXT implied, but dismissive DELIVERY → denial
+- "I will be calm. I will be mistress of myself" = ACKNOWLEDGES emotion exists but CONTROLS it → defensive (not denial — she's managing feelings, not rejecting them)
+
+Defensive vs Denial delivery distinction:
+- Defensive ACKNOWLEDGES feelings exist but avoids/suppresses/controls them: "I need to stay calm", "Let's not go there", "It doesn't matter right now"
+- Denial REJECTS that feelings exist at all: "I don't feel anything", "That doesn't affect me", cynical dismissal of emotion as concept
+
+## Output Format
+Brief two-step reasoning, then JSON:
+
+REASONING:
+- Content: [what emotional topic]
+- Delivery: [how they express it — raw/detached/humorous/deflecting]
 
 JSON:
 {{"distress": 0.0, "vulnerability_display": 0.0, "humor_as_shield": 0.0, "denial_strength": 0.0, "deflection_strength": 0.0, "evidence": {{"most_revealing_quote": "...", "pattern_indicator": "..."}}}}"""

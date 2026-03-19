@@ -30,7 +30,7 @@ CHARACTERS = {
     "heathcliff": {"pattern": "denial", "source": "Wuthering Heights"},
 }
 
-MIN_QUOTE_LENGTH = 30
+MIN_QUOTE_LENGTH = 50
 MAX_QUOTES = 30
 
 
