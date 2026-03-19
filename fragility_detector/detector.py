@@ -149,12 +149,40 @@ class FragilityDetector:
         """
         window = conversation[-window_size:]
 
-        # Extract behavioral features from speaker turns
+        # Extract behavioral features from speaker turns (zero cost)
         speaker_texts = [t["text"] for t in window if t.get("role") == "speaker"]
         combined_text = " ".join(speaker_texts) if speaker_texts else window[-1]["text"]
         features = extract_features(combined_text)
+        behavioral_scores = classify_from_features(features)
+        beh_signal = features.get("total_signal", 0)
+        beh_is_uniform = all(abs(v - 0.25) < 0.02 for v in behavioral_scores.values())
+        beh_best = max(behavioral_scores, key=behavioral_scores.get)
+        beh_conf = behavioral_scores[beh_best]
 
-        # LLM detection
+        # R9: Behavioral skip — if behavioral is very confident, skip LLM
+        if not beh_is_uniform and beh_signal >= 0.2 and beh_conf >= 0.6:
+            # Strong behavioral signal for open/masked/denial → skip LLM
+            signals = FragilitySignals(
+                self_ref_ratio=features["self_ref_ratio"],
+                hedging_ratio=features["hedging_ratio"],
+                humor_markers=features["humor_markers"],
+                negation_ratio=features.get("negation_ratio", 0.0),
+                deflection_ratio=features.get("deflection_ratio", 0.0),
+            )
+            total = sum(behavioral_scores.values())
+            merged = {k: v / total for k, v in behavioral_scores.items()}
+            best = max(merged, key=merged.get)
+            return FragilitySnapshot(
+                turn=turn,
+                pattern=FragilityPattern(best),
+                pattern_scores=merged,
+                signals=signals,
+                confidence=round(merged[best] * 0.85, 3),  # slight penalty vs LLM
+                evidence={"llm_skipped": "true", "beh_signal": f"{beh_signal:.3f}"},
+                raw_llm_scores={},
+            )
+
+        # LLM detection (full prompt, only when behavioral is uncertain)
         llm_scores = self._llm_detect(window)
 
         # Build signals from LLM + behavioral features
@@ -180,13 +208,7 @@ class FragilityDetector:
 
         # Classify pattern: combine LLM pattern scores with behavioral features
         llm_pattern_scores = self._derive_pattern_scores(llm_scores)
-        behavioral_scores = classify_from_features(features)
-
-        # R7: Dynamic weighted merge based on behavioral signal strength
-        # When behavioral has strong signal → trust it more (it's language-independent)
-        # When behavioral has no signal → trust LLM fully
-        beh_signal = features.get("total_signal", 0)
-        beh_is_uniform = all(abs(v - 0.25) < 0.02 for v in behavioral_scores.values())
+        # behavioral_scores already computed above (before LLM skip check)
 
         if beh_is_uniform or beh_signal < 0.08:
             # No behavioral signal → 100% LLM
@@ -356,7 +378,7 @@ JSON:
             response = retry_api_call(
                 lambda: self._client.messages.create(
                     model="anthropic/claude-sonnet-4",
-                    max_tokens=800,
+                    max_tokens=400,  # R9: reduced from 800 (only need brief reasoning + JSON)
                     temperature=0.0,
                     system=system_prompt,
                     messages=[{
