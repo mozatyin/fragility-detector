@@ -14,114 +14,64 @@ from fragility_detector.models import (
 )
 
 
-# Text anchors for each fragility pattern at 4 intensity levels
+# Text anchors for each fragility pattern at 2 intensity levels (0.2 and 0.6; interpolate for 0.4/0.8)
 FRAGILITY_ANCHORS = {
     "open": (
-        "**Open Vulnerability** (directly expresses vulnerability):\n"
-        "- 0.2: slight openness — one brief admission of difficulty, 'it's been hard'\n"
-        "- 0.4: clear vulnerability — sharing feelings directly, 'I feel like giving up', 'I'm scared'\n"
-        "- 0.6: strong openness — sustained emotional disclosure, 'I've been crying all day', multiple vulnerable statements\n"
-        "- 0.8: raw vulnerability — completely unguarded, 'I'm broken', 'I don't know how to go on', every sentence reveals inner pain"
+        "**Open** (directly expresses vulnerability):\n"
+        "- 0.2: one brief admission, 'it's been hard'\n"
+        "- 0.6: sustained disclosure, 'I've been crying all day', multiple vulnerable statements"
     ),
     "defensive": (
-        "**Defensive Vulnerability** (deflects/minimizes vulnerability):\n"
-        "- 0.2: slight deflection — one quick subject change after emotional topic, 'anyway...'\n"
-        "- 0.4: clear defensiveness — 'I'm fine, it's not a big deal', redirecting to practical matters, hedging\n"
-        "- 0.6: strong deflection — persistent minimizing, 'it doesn't matter', 'I don't want to talk about it', walls up\n"
-        "- 0.8: fortress mode — complete emotional shutdown when vulnerability approached, counter-questions, blame-shifting"
+        "**Defensive** (deflects/minimizes vulnerability):\n"
+        "- 0.2: one quick subject change, 'anyway...'\n"
+        "- 0.6: persistent minimizing, 'it doesn't matter', 'I don't want to talk about it'"
     ),
     "masked": (
-        "**Masked Vulnerability** (hides behind humor/casualness):\n"
-        "- 0.2: slight masking — one self-deprecating joke in emotional context, 'haha yeah that sucks'\n"
-        "- 0.4: clear masking — joking about painful topics, 'lol I got dumped again', using humor as shield\n"
-        "- 0.6: strong masking — sustained humor over serious pain, 'at least I'm consistent at failing haha', laughing through tears energy\n"
-        "- 0.8: complete mask — every painful topic immediately wrapped in humor, 'my life is a comedy show', unable to be serious about vulnerability"
+        "**Masked** (hides behind humor/casualness):\n"
+        "- 0.2: one self-deprecating joke in emotional context, 'haha yeah that sucks'\n"
+        "- 0.6: sustained humor over serious pain, 'at least I'm consistent at failing haha'"
     ),
     "denial": (
-        "**Denial of Vulnerability** (denies vulnerability exists):\n"
-        "- 0.2: slight denial — one claim of being unbothered, 'whatever'\n"
-        "- 0.4: clear denial — 'I don't need anyone', 'I'm totally fine', asserting independence/strength\n"
-        "- 0.6: strong denial — aggressive independence, 'feelings are weakness', 'I can handle anything alone'\n"
-        "- 0.8: total denial — identity built on invulnerability, 'nothing can hurt me', rejecting any emotional connection as weakness"
+        "**Denial** (denies vulnerability exists):\n"
+        "- 0.2: one claim of being unbothered, 'whatever'\n"
+        "- 0.6: aggressive independence, 'feelings are weakness', 'I can handle anything alone'"
     ),
 }
 
 # Signals the LLM should rate
 SIGNAL_DEFINITIONS = """
-## Signals to Rate (0.0 to 1.0)
-Rate each of these signals for the SPEAKER's current message:
-
-1. **distress**: Overall emotional pain/distress level. Rate 0.0 if conversation is neutral/casual with NO emotional content.
-   - 0.0: no distress at all (casual chat, factual exchange)
-   - 0.3: mild discomfort  0.6: clear suffering  0.9: acute crisis
-
-2. **vulnerability_display**: How openly the speaker shows vulnerability
-   - 0.0: completely guarded OR no vulnerability present  0.3: hints at vulnerability  0.6: clearly vulnerable  0.9: raw, unguarded
-
-3. **humor_as_shield**: Using humor/casualness to deflect FROM PAIN specifically (not just being funny)
-   - 0.0: no humor-shielding (genuine humor without underlying pain is 0.0)
-   - 0.3: occasional jokes about pain  0.6: persistent humor-deflection  0.9: everything painful wrapped in jokes
-   - CRITICAL: Genuine lighthearted conversation = 0.0, NOT humor_as_shield. Only rate > 0 when humor coexists with identifiable pain/distress.
-
-4. **denial_strength**: Active denial or rejection of vulnerability. Must involve EXPLICIT claims of invulnerability or rejection of emotional needs.
-   - 0.0: no denial  0.3: mild 'I'm fine'  0.6: assertive 'I don't need help'  0.9: aggressive rejection of any vulnerability
-   - CRITICAL: Low vulnerability_display alone does NOT mean denial. Denial requires ACTIVE assertion of strength/invulnerability.
-
-5. **deflection_strength**: Changing subject, minimizing, redirecting away from feelings
-   - 0.0: no deflection  0.3: one quick redirect  0.6: persistent avoidance  0.9: complete emotional shutdown
+## Signals (0.0–1.0) for SPEAKER's message:
+1. **distress**: Emotional pain. 0=neutral/casual, 0.3=mild, 0.6=suffering, 0.9=crisis
+2. **vulnerability_display**: Openness of vulnerability. 0=guarded/absent, 0.3=hints, 0.6=clear, 0.9=raw
+3. **humor_as_shield**: Humor deflecting FROM PAIN (not just being funny). 0=none, 0.3=occasional, 0.6=persistent, 0.9=constant. Genuine humor without pain=0.0.
+4. **denial_strength**: ACTIVE rejection of vulnerability/emotions. 0=none, 0.3=mild, 0.6=assertive, 0.9=aggressive. Low vulnerability alone ≠ denial; requires EXPLICIT claims of invulnerability.
+5. **deflection_strength**: Subject changes, minimizing, redirecting. 0=none, 0.3=one redirect, 0.6=persistent, 0.9=shutdown
 """
 
 # Key disambiguation rules added in R2
 DISAMBIGUATION_RULES = """
-## Critical Disambiguation Rules
+## Disambiguation Rules
 
-### Defensive vs Denial
-These are DIFFERENT patterns. Do NOT confuse them:
-- **Defensive** = "I don't want to talk about it" → AVOIDS the topic, changes subject, hedges
-  - Key signals: subject changes ("anyway..."), minimizing ("it's not a big deal"), hedging ("I guess"), redirecting to practical matters
-  - The person KNOWS they're vulnerable but DEFLECTS from it
-- **Denial** = "I don't HAVE feelings about it" → REJECTS the premise of vulnerability
-  - Key signals: claims of invulnerability ("nothing hurts me"), rejecting emotions as weakness ("feelings are for weak people"), asserting total independence ("I don't need anyone")
-  - The person DENIES vulnerability EXISTS in them
-  - **Angry denial**: Some people deny through AGGRESSION — "Bah! Humbug!", attacking sentiment itself, contempt for emotional expression. This IS denial, not defensive. They're not avoiding the topic, they're ATTACKING the premise that feelings matter.
-  - Rate denial_strength HIGH when someone: dismisses emotions as foolish/weak, attacks people for being emotional, asserts that sentiment/love/caring are pointless
+### Defensive vs Denial (DIFFERENT patterns)
+- **Defensive**: KNOWS vulnerability exists, AVOIDS it — subject changes, minimizing, hedging, "I don't want to talk about it"
+- **Denial**: REJECTS vulnerability exists — claims invulnerability, attacks emotions as weakness, "I don't HAVE feelings about it"
+- Angry denial (attacking sentiment, "Bah! Humbug!") = denial, not defensive — they ATTACK the premise feelings matter
 
 ### Open Anger vs Denial
-- **Open anger** = directly expressing rage, pain, hurt AT someone: "I hate you", "You treated me with miserable cruelty", "I will never forgive you"
-  - This is OPEN vulnerability — the person IS expressing raw emotion, just through anger instead of sadness
-  - Rate high distress + high vulnerability_display. Do NOT rate as denial.
-- **Denial** = rejecting that emotions EXIST or MATTER: "I don't feel anything", "Emotions are weakness"
-  - Key difference: open anger ENGAGES with emotion intensely. Denial DISMISSES emotion as irrelevant.
-  - "I hate you" = open (full emotional engagement). "I don't care about you" = denial (claims no emotion).
-
-### Literary / Formal Language
-- Formal, eloquent language does NOT mean defensive. Historical characters express vulnerability differently than modern speakers.
-- "I cry because I am miserable" in formal English = same as "I'm so sad I can't stop crying" in modern English.
-- Rate the EMOTIONAL CONTENT, not the language register. Ornate expression of pain is still pain.
+- "I hate you" = OPEN (intense emotional engagement). "I don't care about you" = denial (claims no emotion).
+- Open anger expresses raw emotion through rage. Denial dismisses emotion as irrelevant.
 
 ### Masked vs Genuine Humor vs Open-with-humor
-- **Masked** = humor as SHIELD — painful topic + humor IN THE SAME utterance deflecting from it
-  - REQUIRES: identifiable painful content + humor markers TOGETHER in a way that AVOIDS engaging with the pain
-  - Example: "haha I got fired, at least I can sleep in now lol" — pain is job loss, humor deflects from it
-- **Genuine humor** = just being funny, no underlying pain → humor_as_shield = 0.0
-- **Open-with-humor** = directly stating pain even if tone is light — "I'm desperate for love!" is OPEN not masked
-  - If someone NAMES their pain directly without deflecting, that's open even if delivery is dramatic/funny
-  - Key test: does the humor AVOID the pain, or does it EXPOSE the pain? Avoid = masked, expose = open
+- **Masked**: pain + humor TOGETHER, humor AVOIDS the pain. "haha I got fired, at least I can sleep in lol"
+- **Genuine humor**: no underlying pain → humor_as_shield = 0.0
+- **Open-with-humor**: names pain directly even if dramatic — "I'm desperate for love!" = open, not masked
+- Key test: does humor AVOID or EXPOSE the pain? Avoid=masked, expose=open
 
-### Shock/Dissociation vs Defensive
-- When someone reports SEVERE trauma in a flat/detached tone (e.g. "he just shot himself"), this is likely SHOCK or dissociation, NOT defensive deflection.
-- Shock = open vulnerability (the person IS in extreme pain, just can't process it yet)
-- Rate: high distress AND high vulnerability_display for shock — the flat delivery does not mean low vulnerability, it means OVERWHELMING vulnerability.
-- Only rate high deflection_strength when the speaker ACTIVELY changes subject or minimizes. Flat affect alone ≠ deflection.
-
-### Positive Farewell / Gratitude ≠ Vulnerability
-- "Nice chatting with you", "you have given me hope", "thank you for listening" = positive wrap-up, NOT vulnerability display.
-- Do NOT infer previous hopelessness from a grateful goodbye.
-- Rate vulnerability_display = 0.0 for simple gratitude/farewell messages.
-
-### Neutral / No Vulnerability
-- If the conversation is casual/factual with NO emotional distress, rate ALL signals low (< 0.2)
-- Do NOT force a pattern onto neutral text — low scores across all signals is a valid output
+### Special Cases
+- **Literary/formal language**: rate EMOTIONAL CONTENT, not register. Ornate pain is still pain.
+- **Shock/dissociation**: flat tone + severe trauma = open (overwhelming vulnerability), NOT defensive. Flat affect alone ≠ deflection.
+- **Gratitude/farewell**: "thank you for listening" = 0.0 vulnerability. Don't infer prior hopelessness.
+- **Neutral text**: no emotional distress → all signals < 0.2. Don't force a pattern.
 """
 
 
@@ -325,51 +275,35 @@ class FragilityDetector:
 
         anchors_text = "\n\n".join(FRAGILITY_ANCHORS.values())
 
-        system_prompt = f"""You are Dr. Sofia Chen, a clinical psychologist specializing in vulnerability research and emotional disclosure patterns. You are analyzing how people express or hide their vulnerability in conversation.
+        system_prompt = f"""Analyze vulnerability patterns in conversation.
 
-## Fragility Patterns
+## Patterns (interpolate between anchors)
 {anchors_text}
 
 {SIGNAL_DEFINITIONS}
 
 {DISAMBIGUATION_RULES}
 
-## Calibration Rules
-- People experiencing distress often MASK it. Look underneath surface-level communication.
-- "I'm fine" is often NOT fine. "haha" after pain is often a mask, not genuine amusement.
-- Short dismissive responses ("ok", "whatever") when discussing emotional topics = defensive or denial.
-- High self-reference + hedging + vulnerability words = likely Open pattern.
-- Humor markers (haha, lol, emoji) combined with painful content = likely Masked pattern.
-- "I don't need anyone" / "feelings are weakness" = likely Denial pattern.
-- Subject changes, "anyway", minimizing = likely Defensive pattern.
-- MIXED patterns are common. Rate all signals honestly, the classification will handle it.
-- If conversation has NO emotional content, rate all signals near 0.0. Do NOT inflate scores.
+## Calibration
+- "I'm fine" is often NOT fine. "haha" after pain = mask, not genuine amusement.
+- Dismissive responses ("ok","whatever") in emotional context = defensive or denial.
+- High self-ref + hedging = Open. Humor + pain = Masked. "I don't need anyone" = Denial. Subject changes = Defensive.
+- Mixed patterns common — rate all signals honestly. No emotional content → all signals near 0.0.
 
 ## Two-Step Analysis (CRITICAL)
-Analyze CONTENT and DELIVERY separately:
-1. **CONTENT**: What emotional topic is being discussed? (loss, fear, rejection, etc.) — This tells you IF vulnerability is present.
-2. **DELIVERY**: HOW is the person saying it? This determines the PATTERN:
-   - Direct, raw, unguarded → vulnerability_display HIGH (open)
-   - Detached, philosophical, cold statement of facts → vulnerability_display LOW + denial or deflection HIGH
-   - Wrapped in jokes, sarcasm, self-deprecation → humor_as_shield HIGH (masked)
-   - Subject change, minimizing, hedging → deflection_strength HIGH (defensive)
+1. **CONTENT**: What emotional topic? This tells you IF vulnerability is present.
+2. **DELIVERY**: HOW they say it → determines PATTERN:
+   - Raw/unguarded → open. Detached/cold → denial or deflection. Jokes/sarcasm → masked. Subject change/minimizing → defensive.
 
-CRITICAL: A person can discuss VERY vulnerable content (identity crisis, divorce, abuse) while DELIVERING it in a completely detached, cynical, or humorous way. The DELIVERY determines the pattern, NOT the content.
-- "I found out it was easier to be him than to start over" = vulnerable CONTENT, but cold/detached DELIVERY → denial, NOT open
-- "I'm desperate for love!" shouted dramatically = vulnerable CONTENT, but theatrical/performative DELIVERY → could be masked, NOT open
-- "Feelings are weakness" = vulnerable CONTEXT implied, but dismissive DELIVERY → denial
-- "I will be calm. I will be mistress of myself" = ACKNOWLEDGES emotion exists but CONTROLS it → defensive (not denial — she's managing feelings, not rejecting them)
+DELIVERY determines pattern, NOT content. Vulnerable content + detached delivery → denial, not open.
+- "I found out it was easier to be him than to start over" → cold delivery = denial
+- "I will be calm. I will be mistress of myself" → controlling emotions = defensive (not denial — managing, not rejecting)
+- Defensive ACKNOWLEDGES feelings but avoids them. Denial REJECTS that feelings exist.
 
-Defensive vs Denial delivery distinction:
-- Defensive ACKNOWLEDGES feelings exist but avoids/suppresses/controls them: "I need to stay calm", "Let's not go there", "It doesn't matter right now"
-- Denial REJECTS that feelings exist at all: "I don't feel anything", "That doesn't affect me", cynical dismissal of emotion as concept
-
-## Output Format
-Brief two-step reasoning, then JSON:
-
+## Output
 REASONING:
-- Content: [what emotional topic]
-- Delivery: [how they express it — raw/detached/humorous/deflecting]
+- Content: [topic]
+- Delivery: [raw/detached/humorous/deflecting]
 
 JSON:
 {{"distress": 0.0, "vulnerability_display": 0.0, "humor_as_shield": 0.0, "denial_strength": 0.0, "deflection_strength": 0.0, "evidence": {{"most_revealing_quote": "...", "pattern_indicator": "..."}}}}"""
