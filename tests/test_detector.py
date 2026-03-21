@@ -2,6 +2,7 @@
 
 import pytest
 from fragility_detector.detector import FragilityDetector
+from fragility_detector.models import FragilityPattern
 
 
 class TestParseResponse:
@@ -105,3 +106,52 @@ class TestDerivePatternScores:
         assert abs(sum(scores.values()) - 1.0) < 0.001
         for v in scores.values():
             assert v >= 0
+
+
+class TestFastPaths:
+    """Test LLM skip fast paths — no API calls needed."""
+
+    def setup_method(self):
+        self.detector = FragilityDetector.__new__(FragilityDetector)
+
+    def test_no_signal_low_distress_skips_llm(self):
+        """Neutral text + no emotion distress → skip LLM, return uniform."""
+        conv = [{"role": "speaker", "text": "okay sounds good"}]
+        result = self.detector.detect(conv, turn=0, emotion_distress=0.0)
+        assert result.confidence == 0.0
+        assert result.evidence.get("llm_skipped") == "true"
+        assert result.evidence.get("reason") == "no_signal"
+
+    def test_strong_behavioral_skips_llm(self):
+        """Strong vulnerability words → behavioral skip, no LLM."""
+        conv = [{"role": "speaker", "text": "I'm so hurt and broken, I've been crying all day, I feel lost and helpless and scared"}]
+        result = self.detector.detect(conv, turn=0)
+        assert result.evidence.get("llm_skipped") == "true"
+        assert result.pattern == FragilityPattern.OPEN
+
+    def test_strong_denial_behavioral_skip(self):
+        """Strong denial signals → behavioral skip."""
+        conv = [{"role": "speaker", "text": "I'm completely fine. I don't need anyone. I don't care. I'm strong. Feelings are weakness. Whatever."}]
+        result = self.detector.detect(conv, turn=0)
+        assert result.evidence.get("llm_skipped") == "true"
+        assert result.pattern == FragilityPattern.DENIAL
+
+    def test_high_distress_bypasses_no_signal_skip(self):
+        """Even with neutral text, high emotion distress prevents no-signal skip."""
+        conv = [{"role": "speaker", "text": "ok"}]
+        # With high emotion_distress, should NOT hit no_signal fast path
+        # It will try LLM, so we verify it raises (no client) rather than returning no_signal
+        try:
+            result = self.detector.detect(conv, turn=0, emotion_distress=0.5)
+            # If it returns, it must not be the no_signal path
+            assert result.evidence.get("reason") != "no_signal"
+        except AttributeError:
+            # Expected: tries LLM but no client → proves it bypassed no_signal skip
+            pass
+
+    def test_humor_behavioral_skip(self):
+        """Humor markers → masked pattern via behavioral skip."""
+        conv = [{"role": "speaker", "text": "haha yeah that really hurt me lol 😂 at least I'm consistent at failing hahahaha"}]
+        result = self.detector.detect(conv, turn=0)
+        assert result.evidence.get("llm_skipped") == "true"
+        assert result.pattern == FragilityPattern.MASKED

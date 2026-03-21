@@ -125,13 +125,15 @@ class SessionFragilityDetector:
             )
             is_last = remaining_speaker == 0
 
-            if is_first or is_interval or is_last:
+            # Fast path: skip LLM if behavioral says no signal
+            total_signal = features.get("total_signal", 0)
+            if (is_first or is_interval or is_last) and total_signal >= 0.08:
                 # Use window around current turn for LLM detection
                 window_start = max(0, i - 3)
                 window = conversation[window_start:i + 1]
                 llm_scores = self._llm_detect_signals(window)
             else:
-                # Behavioral-only for non-interval turns
+                # Behavioral-only: no LLM needed
                 llm_scores = {
                     "distress": 0.0, "vulnerability_display": 0.0,
                     "humor_as_shield": 0.0, "denial_strength": 0.0,
@@ -331,42 +333,24 @@ class SessionFragilityDetector:
         )
 
     def _llm_detect_signals(self, window: list[dict]) -> dict:
-        """Run LLM signal detection on a conversation window. Same prompt as single-turn detector."""
-        from fragility_detector.detector import FRAGILITY_ANCHORS, SIGNAL_DEFINITIONS, DISAMBIGUATION_RULES
+        """Run LLM signal detection on a conversation window. Uses compressed shared prompt."""
+        from fragility_detector.detector import SYSTEM_PROMPT
 
         conv_text = "\n".join(
             f"[{t.get('role', 'unknown')}]: {t['text']}" for t in window
         )
-        anchors_text = "\n\n".join(FRAGILITY_ANCHORS.values())
-
-        system_prompt = f"""You are Dr. Sofia Chen, a clinical psychologist specializing in vulnerability research. Analyze how the SPEAKER expresses or hides vulnerability.
-
-## Fragility Patterns
-{anchors_text}
-
-{SIGNAL_DEFINITIONS}
-
-{DISAMBIGUATION_RULES}
-
-## Output Format
-Brief reasoning then JSON:
-
-REASONING: [analysis]
-
-JSON:
-{{"distress": 0.0, "vulnerability_display": 0.0, "humor_as_shield": 0.0, "denial_strength": 0.0, "deflection_strength": 0.0, "evidence": {{"most_revealing_quote": "...", "pattern_indicator": "..."}}}}"""
 
         import json as _json
         for attempt in range(3):
             response = retry_api_call(
                 lambda: self._client.messages.create(
                     model="anthropic/claude-sonnet-4",
-                    max_tokens=600,
+                    max_tokens=400,
                     temperature=0.0,
-                    system=system_prompt,
+                    system=SYSTEM_PROMPT,
                     messages=[{
                         "role": "user",
-                        "content": f"Analyze the SPEAKER's vulnerability pattern:\n\n{conv_text}",
+                        "content": conv_text,
                     }],
                 )
             )

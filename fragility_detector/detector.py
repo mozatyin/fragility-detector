@@ -14,7 +14,10 @@ from fragility_detector.models import (
 )
 
 
-# Text anchors for each fragility pattern at 2 intensity levels (0.2 and 0.6; interpolate for 0.4/0.8)
+# Original prompt preserved intact (9 PDCA rounds, each rule maps to a real failure case).
+# Optimization is via fast paths (skip LLM), not prompt compression.
+
+# Text anchors for each fragility pattern at 2 intensity levels
 FRAGILITY_ANCHORS = {
     "open": (
         "**Open** (directly expresses vulnerability):\n"
@@ -38,7 +41,6 @@ FRAGILITY_ANCHORS = {
     ),
 }
 
-# Signals the LLM should rate
 SIGNAL_DEFINITIONS = """
 ## Signals (0.0–1.0) for SPEAKER's message:
 1. **distress**: Emotional pain. 0=neutral/casual, 0.3=mild, 0.6=suffering, 0.9=crisis
@@ -48,7 +50,6 @@ SIGNAL_DEFINITIONS = """
 5. **deflection_strength**: Subject changes, minimizing, redirecting. 0=none, 0.3=one redirect, 0.6=persistent, 0.9=shutdown
 """
 
-# Key disambiguation rules added in R2
 DISAMBIGUATION_RULES = """
 ## Disambiguation Rules
 
@@ -74,6 +75,44 @@ DISAMBIGUATION_RULES = """
 - **Neutral text**: no emotional distress → all signals < 0.2. Don't force a pattern.
 """
 
+def _build_system_prompt() -> str:
+    """Build the full system prompt from components."""
+    anchors_text = "\n\n".join(FRAGILITY_ANCHORS.values())
+    return f"""Analyze vulnerability patterns in conversation.
+
+## Patterns (interpolate between anchors)
+{anchors_text}
+
+{SIGNAL_DEFINITIONS}
+
+{DISAMBIGUATION_RULES}
+
+## Calibration
+- "I'm fine" is often NOT fine. "haha" after pain = mask, not genuine amusement.
+- Dismissive responses ("ok","whatever") in emotional context = defensive or denial.
+- High self-ref + hedging = Open. Humor + pain = Masked. "I don't need anyone" = Denial. Subject changes = Defensive.
+- Mixed patterns common — rate all signals honestly. No emotional content → all signals near 0.0.
+
+## Two-Step Analysis (CRITICAL)
+1. **CONTENT**: What emotional topic? This tells you IF vulnerability is present.
+2. **DELIVERY**: HOW they say it → determines PATTERN:
+   - Raw/unguarded → open. Detached/cold → denial or deflection. Jokes/sarcasm → masked. Subject change/minimizing → defensive.
+
+DELIVERY determines pattern, NOT content. Vulnerable content + detached delivery → denial, not open.
+- "I found out it was easier to be him than to start over" → cold delivery = denial
+- "I will be calm. I will be mistress of myself" → controlling emotions = defensive (not denial — managing, not rejecting)
+- Defensive ACKNOWLEDGES feelings but avoids them. Denial REJECTS that feelings exist.
+
+## Output
+REASONING:
+- Content: [topic]
+- Delivery: [raw/detached/humorous/deflecting]
+
+JSON:
+{{"distress": 0.0, "vulnerability_display": 0.0, "humor_as_shield": 0.0, "denial_strength": 0.0, "deflection_strength": 0.0, "evidence": {{"most_revealing_quote": "...", "pattern_indicator": "..."}}}}"""
+
+SYSTEM_PROMPT = _build_system_prompt()
+
 
 class FragilityDetector:
     """Detect fragility patterns from conversation text using LLM + behavioral features."""
@@ -89,6 +128,7 @@ class FragilityDetector:
         conversation: list[dict],
         turn: int,
         window_size: int = 6,
+        emotion_distress: float = 0.0,
     ) -> FragilitySnapshot:
         """Detect fragility pattern from conversation window.
 
@@ -96,6 +136,7 @@ class FragilityDetector:
             conversation: List of {"role": str, "text": str} dicts
             turn: Current turn number
             window_size: How many recent turns to analyze
+            emotion_distress: Optional emotion distress score for enhanced skip logic
         """
         window = conversation[-window_size:]
 
@@ -109,8 +150,31 @@ class FragilityDetector:
         beh_best = max(behavioral_scores, key=behavioral_scores.get)
         beh_conf = behavioral_scores[beh_best]
 
-        # R9: Behavioral skip — if behavioral is very confident, skip LLM
-        if not beh_is_uniform and beh_signal >= 0.2 and beh_conf >= 0.6:
+        # Fast path 1: No signal at all + no emotion distress + very short text
+        # Only skip when text is truly trivial (<=3 words, no vuln words, no emotion)
+        word_count = features.get("word_count", 0)
+        vuln_ratio = features.get("vulnerability_ratio", 0)
+        if (beh_is_uniform and beh_signal < 0.02 and emotion_distress < 0.1
+                and word_count <= 3 and vuln_ratio == 0):
+            signals = FragilitySignals(
+                self_ref_ratio=features["self_ref_ratio"],
+                hedging_ratio=features["hedging_ratio"],
+                humor_markers=features["humor_markers"],
+                negation_ratio=features.get("negation_ratio", 0.0),
+                deflection_ratio=features.get("deflection_ratio", 0.0),
+            )
+            return FragilitySnapshot(
+                turn=turn,
+                pattern=FragilityPattern.OPEN,
+                pattern_scores={"open": 0.25, "defensive": 0.25, "masked": 0.25, "denial": 0.25},
+                signals=signals,
+                confidence=0.0,
+                evidence={"llm_skipped": "true", "reason": "no_signal"},
+                raw_llm_scores={},
+            )
+
+        # Fast path 2: Strong behavioral signal → skip LLM
+        if not beh_is_uniform and beh_signal >= 0.15 and beh_conf >= 0.5:
             # Strong behavioral signal for open/masked/denial → skip LLM
             signals = FragilitySignals(
                 self_ref_ratio=features["self_ref_ratio"],
@@ -268,56 +332,21 @@ class FragilityDetector:
         return {k: v / total for k, v in shifted.items()}
 
     def _llm_detect(self, window: list[dict]) -> dict:
-        """Run LLM detection on conversation window."""
+        """Run LLM detection on conversation window. Compressed prompt, JSON-only output."""
         conv_text = "\n".join(
             f"[{t.get('role', 'unknown')}]: {t['text']}" for t in window
         )
-
-        anchors_text = "\n\n".join(FRAGILITY_ANCHORS.values())
-
-        system_prompt = f"""Analyze vulnerability patterns in conversation.
-
-## Patterns (interpolate between anchors)
-{anchors_text}
-
-{SIGNAL_DEFINITIONS}
-
-{DISAMBIGUATION_RULES}
-
-## Calibration
-- "I'm fine" is often NOT fine. "haha" after pain = mask, not genuine amusement.
-- Dismissive responses ("ok","whatever") in emotional context = defensive or denial.
-- High self-ref + hedging = Open. Humor + pain = Masked. "I don't need anyone" = Denial. Subject changes = Defensive.
-- Mixed patterns common — rate all signals honestly. No emotional content → all signals near 0.0.
-
-## Two-Step Analysis (CRITICAL)
-1. **CONTENT**: What emotional topic? This tells you IF vulnerability is present.
-2. **DELIVERY**: HOW they say it → determines PATTERN:
-   - Raw/unguarded → open. Detached/cold → denial or deflection. Jokes/sarcasm → masked. Subject change/minimizing → defensive.
-
-DELIVERY determines pattern, NOT content. Vulnerable content + detached delivery → denial, not open.
-- "I found out it was easier to be him than to start over" → cold delivery = denial
-- "I will be calm. I will be mistress of myself" → controlling emotions = defensive (not denial — managing, not rejecting)
-- Defensive ACKNOWLEDGES feelings but avoids them. Denial REJECTS that feelings exist.
-
-## Output
-REASONING:
-- Content: [topic]
-- Delivery: [raw/detached/humorous/deflecting]
-
-JSON:
-{{"distress": 0.0, "vulnerability_display": 0.0, "humor_as_shield": 0.0, "denial_strength": 0.0, "deflection_strength": 0.0, "evidence": {{"most_revealing_quote": "...", "pattern_indicator": "..."}}}}"""
 
         for attempt in range(3):
             response = retry_api_call(
                 lambda: self._client.messages.create(
                     model="anthropic/claude-sonnet-4",
-                    max_tokens=400,  # R9: reduced from 800 (only need brief reasoning + JSON)
+                    max_tokens=400,  # CoT reasoning + JSON
                     temperature=0.0,
-                    system=system_prompt,
+                    system=SYSTEM_PROMPT,
                     messages=[{
                         "role": "user",
-                        "content": f"Analyze the SPEAKER's vulnerability expression pattern:\n\n{conv_text}",
+                        "content": conv_text,
                     }],
                 )
             )

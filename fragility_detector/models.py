@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -13,6 +15,86 @@ class FragilityPattern(str, Enum):
     DEFENSIVE = "defensive"  # Deflects vulnerability
     MASKED = "masked"       # Hides behind humor/casualness
     DENIAL = "denial"       # Denies vulnerability exists
+
+
+# ===== V8.x Interface Dataclasses =====
+
+@dataclass
+class FragilityDetectorInput:
+    """V8.x input: shared understanding + emotion context + session history."""
+    session_id: str
+    turn_id: int
+    raw_text: str
+    conversation: list  # [{"role": str, "text": str}]
+    vulnerability_signals: bool = False
+    emotion_distress: float = 0.0
+    emotion_valence: float = 0.0
+    emotion_dominant: str = ""
+    activation_trigger: str = "none"  # "vulnerability_signals" | "distress_threshold" | "both"
+    session_fragility_history: Optional[list] = None  # prior FragilityDetectorOutput dicts
+    behavioral_features: Optional[dict] = None  # pre-extracted from shared understanding
+
+
+@dataclass
+class CrisisFeedPayload:
+    """Payload for crisis scorer multi-dimensional fusion."""
+    fragility_score: float          # 0.0-1.0
+    fragility_type: str             # "masked" | "defensive" | "open" | "denial" | "none"
+    distress_corroboration: bool    # fragility aligns with emotion distress
+    escalation_detected: bool       # worsening vs prior turns
+    recommended_alert_level: str    # "none" | "monitor" | "warn" | "critical"
+
+
+@dataclass
+class FragilityDetectorOutput:
+    """V8.x output: full detection result with crisis feed."""
+    session_id: str
+    turn_id: int
+    fragility_detected: bool
+    fragility_type: str             # "masked" | "defensive" | "open" | "denial" | "none"
+    fragility_score: float          # 0.0-1.0
+    confidence: float               # 0.0-1.0
+    pattern_scores: dict = field(default_factory=dict)
+    crisis_feed: Optional[CrisisFeedPayload] = None
+    activated: bool = False
+    activation_trigger: str = "none"
+    latency_ms: int = 0
+    evidence: dict = field(default_factory=dict)
+    llm_skipped: bool = False
+
+    @staticmethod
+    def not_activated(session_id: str, turn_id: int) -> "FragilityDetectorOutput":
+        """Return a minimal output when detector is not activated."""
+        return FragilityDetectorOutput(
+            session_id=session_id,
+            turn_id=turn_id,
+            fragility_detected=False,
+            fragility_type="none",
+            fragility_score=0.0,
+            confidence=0.0,
+            activated=False,
+        )
+
+    @staticmethod
+    def timeout_unknown(session_id: str, turn_id: int) -> "FragilityDetectorOutput":
+        """Degradation: return unknown on timeout so crisis scorer stays alert."""
+        return FragilityDetectorOutput(
+            session_id=session_id,
+            turn_id=turn_id,
+            fragility_detected=False,
+            fragility_type="none",
+            fragility_score=0.0,
+            confidence=0.0,
+            activated=True,
+            activation_trigger="timeout",
+            crisis_feed=CrisisFeedPayload(
+                fragility_score=0.0,
+                fragility_type="none",
+                distress_corroboration=False,
+                escalation_detected=False,
+                recommended_alert_level="monitor",  # stay alert on timeout
+            ),
+        )
 
 
 # Star labels: 30/70 rule (positive framing, never negative)
